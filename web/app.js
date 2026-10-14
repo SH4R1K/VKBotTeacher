@@ -52,8 +52,23 @@ function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// createElement("svg") даёт элемент в HTML-пространстве имён, и <use>
+// на символ из спрайта не резолвится: иконка выходит пустой.
+function svgEl(tag, attrs = {}, children = []) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value !== null && value !== undefined && value !== false) node.setAttribute(key, value);
+  }
+  for (const child of [].concat(children)) {
+    if (child !== null && child !== undefined && child !== false) node.append(child);
+  }
+  return node;
+}
+
 const icon = (name, extra = "") =>
-  el("svg", { class: `ico ${extra}`.trim(), "aria-hidden": "true" }, [el("use", { href: `#i-${name}` })]);
+  svgEl("svg", { class: `ico ${extra}`.trim(), "aria-hidden": "true" }, [svgEl("use", { href: `#i-${name}` })]);
 
 const useIcon = (id, name) => $(id).querySelector("use").setAttribute("href", `#i-${name}`);
 
@@ -226,27 +241,45 @@ function applyTheme(theme) {
 function lessonRow(name) {
   const box = el("input", { type: "checkbox" });
   box.checked = state.pickedLessons.has(name);
-  box.addEventListener("change", () => {
+  const apply = () => {
     if (box.checked) state.pickedLessons.add(name);
     else state.pickedLessons.delete(name);
     syncActions();
     renderLessons();
-  });
-  const generate = el(
-    "button",
-    {
-      type: "button",
-      class: "icon sm ghost",
-      title: "Сгенерировать сообщение только по этой методичке",
-      onclick: () => generateOne(name, generate),
-    },
-    [icon("bolt", "sm"), el("span", { class: "visually-hidden", text: `Сгенерировать: ${name}` })]
-  );
-  return el("li", {}, [
+  };
+  box.addEventListener("change", apply);
+
+  const row = el("li", { class: `pickable ${box.checked ? "picked" : ""}`.trim() }, [
     box,
     el("span", { class: "list-row-name", title: name, text: name }),
-    generate,
+    iconButton("open", "Открыть PDF на компьютере", () => openLesson(name), "ghost"),
+    el(
+      "button",
+      {
+        type: "button",
+        class: "icon sm ghost",
+        title: "Сгенерировать сообщение только по этой методичке",
+        onclick: (event) => generateOne(name, event.currentTarget),
+      },
+      [icon("bolt", "sm"), el("span", { class: "visually-hidden", text: `Сгенерировать: ${name}` })]
+    ),
   ]);
+  // Клик по строке ставит галочку: целиться в квадратик не нужно.
+  row.addEventListener("click", (event) => {
+    if (event.target.closest("button") || event.target === box) return;
+    box.checked = !box.checked;
+    apply();
+  });
+  return row;
+}
+
+async function openLesson(name) {
+  try {
+    await post("/api/lesson/open", { name });
+    toast(`Открываю ${name}`);
+  } catch (err) {
+    toast("Не удалось открыть методичку", "bad", err.message);
+  }
 }
 
 function renderLessons() {
@@ -385,19 +418,26 @@ function renderChats() {
   for (const chat of state.chats) {
     const box = el("input", { type: "checkbox" });
     box.checked = state.pickedChats.has(chat.name);
-    box.addEventListener("change", () => {
+    const apply = () => {
       if (box.checked) state.pickedChats.add(chat.name);
       else state.pickedChats.delete(chat.name);
       syncActions();
       syncSendSummary();
+    };
+    box.addEventListener("change", apply);
+    const row = el("li", { class: `pickable ${box.checked ? "picked" : ""}`.trim() }, [
+      box,
+      el("span", { class: "list-row-name", text: chat.name }),
+      chat.api_capable ? null : el("span", { class: "badge warn", text: "без peer_id" }),
+    ]);
+    // Вся строка переключает выбор: целиться в квадратик не нужно.
+    row.addEventListener("click", (event) => {
+      if (event.target === box) return;
+      box.checked = !box.checked;
+      row.className = `pickable ${box.checked ? "picked" : ""}`.trim();
+      apply();
     });
-    list.append(
-      el("li", {}, [
-        box,
-        el("label", { text: chat.name }),
-        chat.api_capable ? null : el("span", { class: "badge warn", text: "без peer_id" }),
-      ])
-    );
+    list.append(row);
   }
   syncSendSummary();
 }
@@ -494,9 +534,9 @@ async function loadState() {
         ? "Токен на месте, автоотправка работает"
         : "Токена нет — автоотправка не сработает";
   badge.title = `${modeText}\n${modeHint}`;
-  const llmText = `${data.llm.model} @ ${data.llm.base_url}`;
-  $("badge-llm").textContent = llmText;
-  $("badge-llm").title = `${llmText}\nПровайдер ИИ и модель. Меняются в настройках.`;
+  const llmFull = `${data.llm.model} @ ${data.llm.base_url}`;
+  $("badge-llm").textContent = data.llm.model;
+  $("badge-llm").title = `${llmFull}\nПровайдер ИИ и модель. Меняются в настройках.`;
   renderLessons();
   renderPhotos();
   renderChats();

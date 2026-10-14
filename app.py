@@ -4,6 +4,9 @@ import asyncio
 import json
 import logging
 import mimetypes
+import os
+import subprocess
+import sys
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -92,6 +95,14 @@ def _unique(directory: Path, filename: str) -> Path:
         candidate = directory / f"{stem}_{index}{suffix}"
         index += 1
     return candidate
+
+
+def _open_file(path: Path) -> None:
+    startfile = getattr(os, "startfile", None)  # есть только в Windows
+    if startfile is not None:
+        startfile(path)
+        return
+    subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
 
 
 def _json(data: object, status: int = 200) -> web.Response:
@@ -261,6 +272,22 @@ async def parse(request: web.Request) -> web.Response:
         raise web.HTTPNotFound(text=f"Методичка не найдена: {path.name}")
     lesson = await asyncio.to_thread(parse_lesson, path)
     return _json({"name": path.name, "lesson": _lesson_dict(lesson)})
+
+
+async def open_lesson(request: web.Request) -> web.Response:
+    ctx: Context = request.app["ctx"]
+    name = str((await _body(request)).get("name") or "").strip()
+    if not name:
+        raise web.HTTPBadRequest(text="Не указано имя методички.")
+    path = ctx.lesson(name)
+    if not path.is_file():
+        raise web.HTTPNotFound(text=f"Методичка не найдена: {path.name}")
+    try:
+        await asyncio.to_thread(_open_file, path)
+    except OSError as err:
+        raise web.HTTPBadRequest(text=f"Не удалось открыть {path.name}: {err}") from err
+    log.info("Методичка открыта на компьютере: %s", path.name)
+    return _json({"name": path.name})
 
 
 async def generate(request: web.Request) -> web.Response:
@@ -669,6 +696,7 @@ def create_app() -> web.Application:
             web.get("/api/photo/thumb", photo_thumb),
             web.post("/api/photo/delete", photo_delete),
             web.post("/api/parse", parse),
+            web.post("/api/lesson/open", open_lesson),
             web.post("/api/generate", generate),
             web.post("/api/generate_batch", generate_batch),
             web.post("/api/save", save),

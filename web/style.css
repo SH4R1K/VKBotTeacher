@@ -477,10 +477,12 @@ button.open:hover:not(:disabled) {
 .list-row-name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
+
+.list li.pickable { cursor: pointer; }
+.list li.pickable:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.list li.picked { border-color: var(--accent); background: var(--accent-soft); }
 
 /* --- карточки фото --- */
 
