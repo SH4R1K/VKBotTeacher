@@ -871,11 +871,14 @@ table.chats td.empty { padding: var(--space-3) 0; color: var(--muted); }
     flex: 1;
   }
 
-  /* Методички и фото: прокручивается только содержимое, шапка и кнопка на месте. */
+  /* Методички и фото: прокручивается только содержимое, шапка и кнопка на месте.
+     contain отсекает scrollable overflow списка: без него содержимое всё равно
+     растягивало документ и страница прокручивалась в пустоту. */
   .col-left .scroll-pane,
   .col-left .list-scroll {
     overflow: auto;
     padding-right: 4px;
+    contain: paint;
   }
 
   /* Сообщение ужимается, освобождая место под растянутую рассылку. */
@@ -891,5 +894,13 @@ table.chats td.empty { padding: var(--space-3) 0; color: var(--muted); }
     flex: 1;
     overflow: auto;
     padding-right: 4px;
+  }
+
+  /* Страница не прокручивается: прокручиваются только панели со списками,
+     иначе она прокручивается в пустоту под ними. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
   }
 }
