@@ -22,11 +22,16 @@ def _value(value: object) -> str:
 
 def render_config(config: AppConfig) -> str:
     lines = [
+        "# Настройки TohaVibeCode. Этот файл создан автоматически при первом",
+        "# запуске — впиши своё или настрой всё из браузера (шестерёнка в шапке).",
+        "",
         "[llm]",
         f"provider = {_value(config.llm.provider)}",
         "# " + " | ".join(LLM_PROVIDERS),
         f"base_url = {_value(config.llm.base_url)}",
+        "# адрес совместимого с OpenAI API; у провайдера подставляется сам",
         f"api_key = {_value(config.llm.api_key)}",
+        "# локальным моделям обычно не нужен, облачным — обязателен",
         f"model = {_value(config.llm.model)}",
         f"temperature = {_value(config.llm.temperature)}",
         f"timeout_seconds = {config.llm.timeout_seconds}",
@@ -40,6 +45,7 @@ def render_config(config: AppConfig) -> str:
         f"user_token = {_value(config.vk.user_token)}",
         f"community_token = {_value(config.vk.community_token)}",
         f"api_version = {_value(config.vk.api_version)}",
+        "# токен нужен только тому режиму, что выбран выше",
         "",
         "[server]",
         f"host = {_value(config.server.host)}",
@@ -74,3 +80,17 @@ def save_config(config: AppConfig, path: Path | None = None) -> Path:
     temp.write_text(text, encoding="utf-8")
     temp.replace(target)
     return target
+
+
+def ensure_config(path: Path | None = None) -> tuple[Path, bool]:
+    """Создаёт config.toml с настройками по умолчанию, если его ещё нет.
+
+    Второй элемент — True, если файл только что создан: на первом запуске его
+    надо заполнить, на остальных молча читаем то, что уже есть. Существующий
+    файл не трогаем, `.bak` при создании тоже не нужен.
+    """
+    target = path or CONFIG_PATH
+    if target.exists():
+        return target, False
+    save_config(AppConfig(), target)
+    return target, True

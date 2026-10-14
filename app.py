@@ -25,7 +25,7 @@ from core.config import (
     LLMConfig,
     load_config,
 )
-from core.config_store import save_config
+from core.config_store import ensure_config, save_config
 from core.history import DEFAULT_PAGE_SIZE, delete_history, history_page, save_message
 from core.llm import LLMClient, LLMError, list_model_details, probe
 from core.naming import safe_filename
@@ -742,6 +742,18 @@ async def vk_chat_test_send(request: web.Request) -> web.Response:
 
 
 def create_app() -> web.Application:
+    try:
+        config_path, created = ensure_config()
+    except OSError as err:
+        # Каталог может быть только для чтения — стартуем на настройках по умолчанию.
+        log.warning("Создать config.toml не удалось: %s", err)
+    else:
+        if created:
+            log.info(
+                "Создан %s с настройками по умолчанию. Впиши провайдера ИИ и "
+                "токены ВК — в файле или в настройках в браузере.",
+                config_path,
+            )
     config = load_config()
     ctx = Context(
         config=config,
@@ -786,7 +798,7 @@ def create_app() -> web.Application:
             web.get("/api/settings", settings_get),
             web.post("/api/settings", settings_save),
             web.post("/api/llm/check", llm_check),
-    web.get("/api/llm/health", llm_health),
+            web.get("/api/llm/health", llm_health),
             web.post("/api/vk/check", vk_check),
             web.post("/api/vk/conversations", vk_conversations),
             web.post("/api/vk/chat", vk_chat_check),
