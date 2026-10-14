@@ -7,7 +7,7 @@
 <script>
   // Тему ставим до первой отрисовки, иначе при тёмной системе мигнёт светлым.
   (() => {
-    const saved = localStorage.getItem("tohavibe.theme");
+    const saved = localStorage.getItem("vkbotteacher.theme");
     const dark = matchMedia("(prefers-color-scheme: dark)").matches;
     document.documentElement.dataset.theme = saved || (dark ? "dark" : "light");
   })();

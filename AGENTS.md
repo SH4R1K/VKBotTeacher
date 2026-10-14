@@ -1,4 +1,4 @@
-# TohaVibeCode
+# VKBotTeacher
 
 Локальный помощник учителя: веб-приложение на aiohttp, которое разбирает методички
 PDF, генерирует по ним сообщения через OpenAI-совместимый ИИ и рассылает результат
@@ -53,7 +53,7 @@ PDF, генерирует по ним сообщения через OpenAI-со�
   Шрифты и иконки — свои, из инлайн-SVG-спрайта в `index.html` (`<symbol id="i-…">`),
   без CDN.
 - Тема ставится до первой отрисовки инлайн-скриптом в `<head>` из
-  `localStorage["tohavibe.theme"]`; ключ продублирован в `web/app.js` как
+  `localStorage["vkbotteacher.theme"]`; ключ продублирован в `web/app.js` как
   `THEME_KEY`. Менять — в обоих местах.
 - Иконка-кнопка: `<button class="icon" title="…"><svg><use href="#i-…"></use></svg></button>`
   плюс `.visually-hidden` с текстом, иначе кнопка без имени для скринридера.
@@ -72,7 +72,7 @@ PDF, генерирует по ним сообщения через OpenAI-со�
   `ctx.lesson`, `os.startfile` под Windows, `xdg-open`/`open` на прочих системах.
 - Подтверждения — своим `confirmDialog()` (`#dlg-confirm`), системный `confirm()`
   в проекте больше не используется.
-- Черновик пишется в `localStorage["tohavibe.draft.v1"]` (`DRAFT_KEY`) и чистится
+- Черновик пишется в `localStorage["vkbotteacher.draft.v1"]` (`DRAFT_KEY`) и чистится
   после успешной отправки и сохранения.
 - Доступность провайдера ИИ проверяет сервер: `probe_llm`/`_require_llm` в
   `app.py`, кэш на `LLM_HEALTH_TTL`, статус лежит в `state.llm.health`, клиент

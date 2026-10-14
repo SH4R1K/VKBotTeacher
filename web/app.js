@@ -5,8 +5,8 @@ const $ = (id) => document.getElementById(id);
 /* Лимит фото держит sender/vk_api.py (MAX_ATTACHMENTS). Дублируем здесь,
    чтобы интерфейс не давал отметить то, что сервер всё равно срежет молча. */
 const MAX_PHOTOS = 10;
-const DRAFT_KEY = "tohavibe.draft.v1";
-const THEME_KEY = "tohavibe.theme";
+const DRAFT_KEY = "vkbotteacher.draft.v1";
+const THEME_KEY = "vkbotteacher.theme";
 const HISTORY_SIZE = 20;
 /* Методички приходят одним списком из /api/state, поэтому делим их в интерфейсе. */
 const LESSON_PAGE = 10;
