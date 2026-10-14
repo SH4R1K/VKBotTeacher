@@ -12,6 +12,7 @@ from .config import LLMConfig
 log = logging.getLogger(__name__)
 
 FENCE = re.compile(r"^\s*```[a-zA-Z]*\s*|\s*```\s*$")
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1", "0.0.0.0")
 
 
 class LLMError(RuntimeError):
@@ -89,13 +90,14 @@ class LLMClient:
         )
 
 
-async def list_models(config: LLMConfig) -> list[str]:
+async def list_models(config: LLMConfig, *, timeout_seconds: float | None = None) -> list[str]:
     """Список моделей провайдера — им же проверяется подключение в настройках."""
     url = f"{config.base_url.rstrip('/')}/models"
     headers: dict[str, str] = {}
     if config.api_key:
         headers["Authorization"] = f"Bearer {config.api_key}"
-    timeout = aiohttp.ClientTimeout(total=min(config.timeout_seconds, 20))
+    limit = timeout_seconds if timeout_seconds is not None else min(config.timeout_seconds, 20)
+    timeout = aiohttp.ClientTimeout(total=limit)
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
@@ -108,7 +110,7 @@ async def list_models(config: LLMConfig) -> list[str]:
         except aiohttp.ClientError as err:
             raise LLMError(f"Не удалось достучаться до {url}: {err}") from err
         except TimeoutError as err:
-            raise LLMError(f"{url} не ответил за {timeout.total} с") from err
+            raise LLMError(f"{url} не ответил за {limit} с") from err
 
     try:
         data = json.loads(body)
@@ -118,3 +120,63 @@ async def list_models(config: LLMConfig) -> list[str]:
     if not isinstance(items, list):
         raise LLMError(f"{url} не вернул список моделей: {body[:200]}")
     return sorted({str(i["id"]) for i in items if isinstance(i, dict) and i.get("id")})
+
+
+async def probe(config: LLMConfig, *, timeout_seconds: float) -> None:
+    """Проверка живости провайдера: поднимается LLMError, если достучаться нельзя."""
+    await list_models(config, timeout_seconds=timeout_seconds)
+
+
+def _is_local(base_url: str) -> bool:
+    host = base_url.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    return host.lower() in LOCAL_HOSTS
+
+
+async def list_model_details(config: LLMConfig, *, timeout_seconds: float | None = None) -> list[dict]:
+    """Модели провайдера с состоянием, если провайдер его отдаёт.
+
+    LM Studio по OpenAI-совместимому /models отдаёт только то, что сейчас в памяти.
+    Его нативный /api/v0/models перечисляет все скачанные модели и помечает state:
+    loaded / not-loaded — их и хочет видеть пользователь в списке выбора.
+    Для остальных провайдеров (и если нативного API нет) — обычный список без меток.
+    """
+    if _is_local(config.base_url):
+        native = await _native_models(config, timeout_seconds)
+        if native is not None:
+            return native
+    return [{"id": model_id, "state": "", "type": ""} for model_id in await list_models(config, timeout_seconds=timeout_seconds)]
+
+
+async def _native_models(config: LLMConfig, timeout_seconds: float | None) -> list[dict] | None:
+    # Нативный API живёт от корня хоста: у base_url вида http://host:1234/v1 префикс /v1
+    # к нему не относится, и LM Studio ответит «не найдено».
+    root = config.base_url.split("//", 1)[0] + "//" + config.base_url.split("//", 1)[-1].split("/", 1)[0]
+    url = f"{root}/api/v0/models"
+    limit = timeout_seconds if timeout_seconds is not None else min(config.timeout_seconds, 20)
+    headers: dict[str, str] = {}
+    if config.api_key:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+    try:
+        async with (
+            aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=limit)) as session,
+            session.get(url, headers=headers) as response,
+        ):
+            if response.status >= 400:
+                return None
+            body = await response.text()
+        data = json.loads(body)
+    except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+        log.debug("Нативный список моделей %s не ответил: %s", url, err)
+        return None
+    items = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return None
+    return [
+        {
+            "id": str(item.get("id") or ""),
+            "state": str(item.get("state") or ""),
+            "type": str(item.get("type") or ""),
+        }
+        for item in items
+        if isinstance(item, dict) and item.get("id")
+    ]

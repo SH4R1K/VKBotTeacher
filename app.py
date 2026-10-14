@@ -7,6 +7,7 @@ import mimetypes
 import os
 import subprocess
 import sys
+import time
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +27,7 @@ from core.config import (
 )
 from core.config_store import save_config
 from core.history import DEFAULT_PAGE_SIZE, delete_history, history_page, save_message
-from core.llm import LLMClient, LLMError, list_models
+from core.llm import LLMClient, LLMError, list_model_details, probe
 from core.naming import safe_filename
 from core.pdf_parser import Lesson, parse_lesson
 from core.prompt_builder import build_prompt, load_style
@@ -54,6 +55,9 @@ log = logging.getLogger("app")
 WEB_DIR = ROOT / "web"
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
+# Провайдер ИИ опрашивается не чаще этого, иначе /models долбит каждый клик.
+LLM_HEALTH_TTL = 15.0
+LLM_HEALTH_PROBE_TIMEOUT = 10.0
 
 
 @dataclass(slots=True)
@@ -66,6 +70,10 @@ class Context:
     photos_dir: Path
     history_dir: Path
     style_path: Path
+    llm_health: dict
+    llm_health_stamp: float
+    llm_health_key: str
+    llm_lock: asyncio.Lock
 
     def lesson(self, name: str) -> Path:
         return _resolve(self.lessons_dir, name)
@@ -80,11 +88,54 @@ class Context:
         self.config = config
         self.client = LLMClient(config.llm)
         self.sender = build_sender(config)
+        self.llm_health = health_unknown()
+        self.llm_health_stamp = 0.0
+        self.llm_health_key = ""
 
 
 def _resolve(base: Path, name: str) -> Path:
     # Path(name).name отбрасывает и "..", и абсолютные пути — результат всегда внутри base.
     return base / Path(name).name
+
+
+def health_unknown() -> dict:
+    return {"status": "unknown", "error": "", "checked_at": None}
+
+
+def _health_key(llm: LLMConfig) -> str:
+    return f"{llm.base_url}|{llm.model}|{llm.api_key}"
+
+
+async def probe_llm(ctx: Context, *, force: bool = False) -> dict:
+    """Живость провайдера ИИ с кэшем: без него кнопка генерации запускает пустой таймер."""
+    key = _health_key(ctx.config.llm)
+    async with ctx.llm_lock:
+        fresh = (
+            not force
+            and key == ctx.llm_health_key
+            and ctx.llm_health_stamp > 0
+            and time.monotonic() - ctx.llm_health_stamp < LLM_HEALTH_TTL
+        )
+        if fresh:
+            return ctx.llm_health
+        ctx.llm_health_key = key
+        ctx.llm_health = {"status": "checking", "error": "", "checked_at": None}
+        try:
+            await probe(ctx.config.llm, timeout_seconds=LLM_HEALTH_PROBE_TIMEOUT)
+        except LLMError as err:
+            log.info("Провайдер ИИ недоступен: %s", err)
+            ctx.llm_health = {"status": "bad", "error": str(err), "checked_at": time.time()}
+        else:
+            ctx.llm_health = {"status": "ok", "error": "", "checked_at": time.time()}
+        ctx.llm_health_stamp = time.monotonic()
+        return ctx.llm_health
+
+
+async def _require_llm(ctx: Context) -> None:
+    health = await probe_llm(ctx)
+    if health["status"] != "ok":
+        reason = str(health["error"] or "проверка не выполнена")
+        raise LLMError(f"Провайдер ИИ недоступен, генерация не запущена. {reason}")
 
 
 def _unique(directory: Path, filename: str) -> Path:
@@ -182,13 +233,23 @@ async def state(request: web.Request) -> web.Response:
                 "supports_photos": ctx.sender.supports_photos,
                 "ready": ctx.sender.ready,
             },
-            "llm": {"base_url": ctx.config.llm.base_url, "model": ctx.config.llm.model},
+            "llm": {
+                "base_url": ctx.config.llm.base_url,
+                "model": ctx.config.llm.model,
+                "health": ctx.llm_health,
+            },
             "chats": [
                 {"name": c.name, "peer_id": c.peer_id, "api_capable": c.peer_id is not None}
                 for c in ctx.config.chats
             ],
             "lessons": sorted(p.name for p in ctx.lessons_dir.glob("*.pdf")),
             "photos": sorted(p.name for p in ctx.photos_dir.iterdir() if p.is_file()),
+            # mtime файла = когда фото попало в папку; по нему сортируется список.
+            "photos_meta": [
+                {"name": p.name, "added": p.stat().st_mtime}
+                for p in sorted(ctx.photos_dir.iterdir(), key=lambda i: (-i.stat().st_mtime, i.name))
+                if p.is_file()
+            ],
             "style_path": ctx.style_path.name,
         }
     )
@@ -296,6 +357,7 @@ async def generate(request: web.Request) -> web.Response:
     path = ctx.lesson(str(payload.get("name", "")))
     if not path.exists():
         raise web.HTTPNotFound(text=f"Методичка не найдена: {path.name}")
+    await _require_llm(ctx)
     temperature = payload.get("temperature")
     text, lesson = await _generate(
         ctx, path, float(temperature) if temperature is not None else None
@@ -311,6 +373,9 @@ async def generate_batch(request: web.Request) -> web.Response:
         path = ctx.lesson(name)
         if path.exists():
             paths.append(path)
+    if not paths:
+        raise web.HTTPBadRequest(text="Не выбрано ни одной методички")
+    await _require_llm(ctx)
 
     async def run(path: Path) -> dict:
         try:
@@ -597,11 +662,18 @@ async def llm_check(request: web.Request) -> web.Response:
     except ValidationError as err:
         raise web.HTTPBadRequest(text="Настройки ИИ не прошли проверку: " + str(err)) from err
     try:
-        models = await list_models(llm)
+        details = await list_model_details(llm)
     except LLMError as err:
         log.info("Проверка ИИ не удалась: %s", err)
         return _json({"ok": False, "error": str(err)})
-    return _json({"ok": True, "models": models, "model_found": llm.model in models})
+    models = [item["id"] for item in details]
+    return _json({"ok": True, "models": models, "details": details, "model_found": llm.model in models})
+
+
+async def llm_health(request: web.Request) -> web.Response:
+    ctx: Context = request.app["ctx"]
+    force = request.query.get("force") == "1"
+    return _json({"llm": await probe_llm(ctx, force=force)})
 
 
 async def vk_check(request: web.Request) -> web.Response:
@@ -680,6 +752,10 @@ def create_app() -> web.Application:
         photos_dir=(ROOT / config.paths.photos_dir).resolve(),
         history_dir=(ROOT / config.paths.history_dir).resolve(),
         style_path=(ROOT / config.paths.style_file).resolve(),
+        llm_health=health_unknown(),
+        llm_health_stamp=0.0,
+        llm_health_key="",
+        llm_lock=asyncio.Lock(),
     )
     for directory in (ctx.lessons_dir, ctx.photos_dir, ctx.history_dir):
         directory.mkdir(parents=True, exist_ok=True)
@@ -710,6 +786,7 @@ def create_app() -> web.Application:
             web.get("/api/settings", settings_get),
             web.post("/api/settings", settings_save),
             web.post("/api/llm/check", llm_check),
+    web.get("/api/llm/health", llm_health),
             web.post("/api/vk/check", vk_check),
             web.post("/api/vk/conversations", vk_conversations),
             web.post("/api/vk/chat", vk_chat_check),
