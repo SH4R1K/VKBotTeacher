@@ -183,7 +183,9 @@ button:hover:not(:disabled) {
   background: var(--surface-2);
 }
 
-button:active:not(:disabled) { transform: translateY(1px); }
+/* Без transform: у нажатой кнопки сдвиг на 1px попадал в scrollable overflow
+   панели и включал у неё скроллбар, который отжимал список. */
+button:active:not(:disabled) { opacity: .85; }
 
 button:disabled {
   opacity: .45;
@@ -866,15 +868,13 @@ table.chats td.empty { padding: var(--space-3) 0; color: var(--muted); }
   }
 
   .col-left .cardish,
-  .col-left .source-panel,
-  .col-left .scroll-pane {
+  .col-left .source-panel {
     flex: 1;
   }
 
-  /* Методички и фото: прокручивается только содержимое, шапка и кнопка на месте.
+  /* Методички и фото: прокручивается только список, шапка и пагинация на месте.
      contain отсекает scrollable overflow списка: без него содержимое всё равно
      растягивало документ и страница прокручивалась в пустоту. */
-  .col-left .scroll-pane,
   .col-left .list-scroll {
     overflow: auto;
     padding-right: 4px;
