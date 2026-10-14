@@ -748,6 +748,11 @@ table.chats td.acts button { margin-left: 4px; }
 table.chats td.empty { padding: var(--space-3) 0; color: var(--muted); }
 
 .row.pager { justify-content: center; gap: 5px; }
+.row.pager:not(:empty) {
+  padding: var(--space-2) var(--space-5);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
 .row.pager button { min-width: 36px; padding: 0 10px; }
 .row.pager button.on {
   border-color: var(--accent);

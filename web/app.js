@@ -484,16 +484,19 @@ async function loadState() {
   state.photos = new Set(data.photos);
   const t = data.transport;
   const badge = $("badge-transport");
-  badge.textContent = `транспорт: ${t.mode}`;
+  const modeText = `транспорт: ${t.mode}`;
+  badge.textContent = modeText;
   badge.className = `badge ${t.mode === "clipboard" ? "warn" : t.ready ? "ok" : "bad"}`;
-  badge.title =
+  const modeHint =
     t.mode === "clipboard"
       ? "Режим буфера обмена: приложение копирует текст, отправляешь сам"
       : t.ready
         ? "Токен на месте, автоотправка работает"
         : "Токена нет — автоотправка не сработает";
-  $("badge-llm").textContent = `${data.llm.model} @ ${data.llm.base_url}`;
-  $("badge-llm").title = "Провайдер ИИ и модель. Меняются в настройках.";
+  badge.title = `${modeText}\n${modeHint}`;
+  const llmText = `${data.llm.model} @ ${data.llm.base_url}`;
+  $("badge-llm").textContent = llmText;
+  $("badge-llm").title = `${llmText}\nПровайдер ИИ и модель. Меняются в настройках.`;
   renderLessons();
   renderPhotos();
   renderChats();
