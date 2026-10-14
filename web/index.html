@@ -52,6 +52,7 @@
   <div class="badges">
     <span class="badge" id="badge-transport">транспорт: …</span>
     <span class="badge plain" id="badge-llm">LLM: …</span>
+    <span class="badge plain" id="badge-llm-health">ИИ: …</span>
   </div>
   <span class="spacer"></span>
   <div class="topbar-actions">
@@ -84,7 +85,7 @@
         </button>
       </div>
 
-      <div class="panel-slot scroll-pane" role="tabpanel" id="panel-lessons" aria-labelledby="tab-lessons">
+      <div class="panel-slot source-panel" role="tabpanel" id="panel-lessons" aria-labelledby="tab-lessons">
         <div class="section-title">
           <h2>Методички</h2>
           <span class="hint" id="lesson-count"></span>
@@ -99,16 +100,19 @@
           <input id="lesson-search" type="search" placeholder="Поиск по имени файла" autocomplete="off" aria-label="Поиск методички по имени">
           <button type="button" class="ghost" id="btn-lessons-all">Выбрать все</button>
         </div>
-        <div class="row">
-          <button type="button" class="primary" id="btn-generate-batch" disabled title="Сгенерировать сообщения по отмеченным методичкам">
+        <div class="list-scroll" id="lesson-list-scroll">
+          <ul class="list" id="list-lessons"></ul>
+          <div class="row pager" id="lessons-pager"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="primary wide" id="btn-generate-batch" disabled title="Сгенерировать сообщения по отмеченным методичкам">
             <svg class="ico"><use href="#i-bolt"></use></svg>
             <span class="btn-text" id="generate-batch-label">Сгенерировать выбранные</span>
           </button>
         </div>
-        <ul class="list" id="list-lessons"></ul>
       </div>
 
-      <div class="panel-slot scroll-pane" role="tabpanel" id="panel-photos" aria-labelledby="tab-photos" hidden>
+      <div class="panel-slot scroll-pane source-panel" role="tabpanel" id="panel-photos" aria-labelledby="tab-photos" hidden>
         <div class="section-title">
           <h2>Фото для отправки</h2>
           <span class="hint" id="photo-count"></span>
@@ -127,8 +131,10 @@
           <span class="badge plain" id="photo-selected-count">Выбрано 0 из 10</span>
           <button type="button" class="ghost" id="btn-photos-none">Снять все</button>
         </div>
-        <ul class="cards" id="list-photos"></ul>
-        <p class="hint" id="photo-hint"></p>
+        <div class="list-scroll" id="photo-list-scroll">
+          <ul class="cards" id="list-photos"></ul>
+        </div>
+        <div class="row pager" id="photos-pager"></div>
       </div>
     </div>
   </section>
@@ -159,8 +165,10 @@
         <h2>Рассылка</h2>
         <span class="hint" id="send-summary"></span>
       </div>
-      <ul class="list" id="list-chats"></ul>
-      <ul class="list results" id="results"></ul>
+      <div class="list-scroll" id="send-list-scroll">
+        <ul class="list" id="list-chats"></ul>
+        <ul class="list results" id="results"></ul>
+      </div>
       <div class="actionbar">
         <button type="button" class="ghost" id="btn-copy" disabled title="Скопировать текст в буфер обмена">
           <svg class="ico"><use href="#i-copy"></use></svg>
@@ -273,9 +281,8 @@
             <select id="set-llm-provider"></select>
           </label>
           <label class="field">
-            <span>Модель</span>
-            <input id="set-llm-model" type="text" list="llm-models" autocomplete="off" spellcheck="false">
-            <datalist id="llm-models"></datalist>
+            <span>Модель <em>— список подтягивается с провайдера</em></span>
+            <select id="set-llm-model"></select>
           </label>
         </div>
         <div class="grid2">
@@ -296,7 +303,10 @@
         <div class="grid2">
           <label class="field">
             <span>Температура <em>— от 0 (строго) до 2 (свободнее)</em></span>
-            <input id="set-llm-temp" type="number" step="0.1" min="0" max="2">
+            <span class="slider">
+              <input id="set-llm-temp" type="range" min="0" max="2" step="0.05">
+              <output id="llm-temp-value" for="set-llm-temp">0.70</output>
+            </span>
           </label>
           <label class="field">
             <span>Таймаут ответа, с</span>
@@ -310,7 +320,7 @@
           </button>
           <span class="hint" id="llm-status"></span>
         </div>
-        <p class="hint">Выбор провайдера подставляет его адрес и ключ. Локальные (LM Studio, Ollama) работают без ключа и без интернета, облачные требуют ключ. Поле модели подсказывает список моделей, если провайдер его отдаёт.</p>
+        <p class="hint">Выбор провайдера подставляет его адрес и ключ. Локальные (LM Studio, Ollama) работают без ключа и без интернета, облачные требуют ключ. Список моделей подтягивается автоматически; у LM Studio он шире, чем в OpenAI-совместимом — там видны и ещё не загруженные модели.</p>
       </div>
 
       <div class="panel-slot" role="tabpanel" id="panel-set-vk" aria-labelledby="tab-set-vk" hidden>

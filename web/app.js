@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 const $ = (id) => document.getElementById(id);
 
@@ -8,6 +8,11 @@ const MAX_PHOTOS = 10;
 const DRAFT_KEY = "tohavibe.draft.v1";
 const THEME_KEY = "tohavibe.theme";
 const HISTORY_SIZE = 20;
+/* Методички приходят одним списком из /api/state, поэтому делим их в интерфейсе. */
+const LESSON_PAGE = 10;
+const PHOTO_PAGE = 12;
+const HEALTH_POLL_OK = 20000;
+const HEALTH_POLL_BAD = 10000;
 
 const state = {
   transport: { mode: "clipboard", supports_photos: false, ready: true },
@@ -29,6 +34,11 @@ const state = {
   vkChatItems: [],
   vkPicked: new Set(),
   history: { page: 1, pages: 1, total: 0, search: "" },
+  lessonPage: 1,
+  photoPage: 1,
+  photoAdded: new Map(),
+  llmHealth: { status: "unknown", error: "", checked_at: null },
+  healthTimer: null,
 };
 
 const MODE_LABELS = {
@@ -236,6 +246,61 @@ function applyTheme(theme) {
   $(`btn-theme`).title = theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему";
 }
 
+/* --- healthcheck провайдера ИИ --- */
+
+const HEALTH_LABELS = {
+  unknown: { text: "ИИ: не проверен", kind: "plain" },
+  checking: { text: "ИИ: проверяю…", kind: "warn" },
+  ok: { text: "ИИ: доступен", kind: "ok" },
+  bad: { text: "ИИ: недоступен", kind: "bad" },
+};
+
+function renderLlmHealth() {
+  const health = state.llmHealth || { status: "unknown", error: "" };
+  const view = HEALTH_LABELS[health.status] || HEALTH_LABELS.unknown;
+  const badge = $("badge-llm-health");
+  badge.textContent = view.text;
+  badge.className = `badge ${view.kind}`;
+  badge.title = health.error
+    ? `Провайдер ИИ недоступен: ${health.error}\nГенерация не запустится, пока связи нет.`
+    : view.text;
+  syncActions();
+}
+
+async function refreshLlmHealth(force = false) {
+  try {
+    const data = await api(`/api/llm/health${force ? "?force=1" : ""}`);
+    state.llmHealth = data.llm || state.llmHealth;
+  } catch (err) {
+    state.llmHealth = { status: "bad", error: err.message, checked_at: null };
+  }
+  renderLlmHealth();
+  scheduleHealth();
+  return state.llmHealth.status === "ok";
+}
+
+function scheduleHealth() {
+  clearTimeout(state.healthTimer);
+  if (document.hidden) return;
+  const delay = state.llmHealth.status === "bad" ? HEALTH_POLL_BAD : HEALTH_POLL_OK;
+  state.healthTimer = setTimeout(() => refreshLlmHealth(), delay);
+}
+
+async function ensureLlmHealthy() {
+  status("gen-status", "Проверяю провайдера ИИ…");
+  const ok = await refreshLlmHealth(true);
+  if (!ok) {
+    const reason = state.llmHealth.error || "проверка не удалась";
+    status("gen-status", `Генерация не запущена: ${reason}`, "bad");
+    toast("Провайдер ИИ недоступен, генерация не запущена", "bad", reason);
+  }
+  return ok;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshLlmHealth(true);
+});
+
 /* --- методички --- */
 
 function lessonRow(name) {
@@ -257,7 +322,7 @@ function lessonRow(name) {
       "button",
       {
         type: "button",
-        class: "icon sm ghost",
+        class: "icon sm ghost gen-one",
         title: "Сгенерировать сообщение только по этой методичке",
         onclick: (event) => generateOne(name, event.currentTarget),
       },
@@ -286,15 +351,46 @@ function renderLessons() {
   const list = $("list-lessons");
   const all = [...state.lessons].sort((a, b) => a.localeCompare(b, "ru"));
   const shown = filterNames(all, $("lesson-search").value);
+  const pages = Math.max(1, Math.ceil(shown.length / LESSON_PAGE));
+  if (state.lessonPage > pages) state.lessonPage = pages;
+  const page = state.lessonPage;
+  const from = (page - 1) * LESSON_PAGE;
+
   list.replaceChildren();
   if (!shown.length) {
     list.append(el("li", { class: "empty", text: all.length ? "Ничего не найдено" : "Методичек пока нет" }));
   }
-  for (const name of shown) list.append(lessonRow(name));
+  for (const name of shown.slice(from, from + LESSON_PAGE)) list.append(lessonRow(name));
   const picked = shown.filter((name) => state.pickedLessons.has(name)).length;
   $("lesson-count").textContent =
     (shown.length === all.length ? `${all.length} шт.` : `${shown.length} из ${all.length}`) +
     (picked ? ` · отмечено ${picked}` : "");
+  renderLessonsPager(pages, page);
+}
+
+function renderLessonsPager(pages, page) {
+  renderPager($("lessons-pager"), pages, page, (n) => {
+    state.lessonPage = n;
+    renderLessons();
+    $("lesson-list-scroll").scrollTo({ top: 0 });
+  });
+}
+
+function renderPager(pager, pages, page, goTo) {
+  pager.replaceChildren();
+  if (pages < 2) return;
+  const go = (n) => () => goTo(n);
+  pager.append(el("button", { type: "button", text: "←", title: "Предыдущая страница", disabled: page <= 1, onclick: go(page - 1) }));
+  for (const n of pageWindow(page, pages)) {
+    if (n === "…") {
+      pager.append(el("span", { class: "gap", text: "…" }));
+      continue;
+    }
+    const button = el("button", { type: "button", text: String(n), onclick: go(n) });
+    if (n === page) button.classList.add("on");
+    pager.append(button);
+  }
+  pager.append(el("button", { type: "button", text: "→", title: "Следующая страница", disabled: page >= pages, onclick: go(page + 1) }));
 }
 
 /* --- фото --- */
@@ -351,15 +447,18 @@ function photoCard(name) {
   const picked = state.pickedPhotos.has(name);
   const box = el("input", { type: "checkbox" });
   box.checked = picked;
-  box.addEventListener("change", () => {
-    if (box.checked && !picked && state.pickedPhotos.size >= MAX_PHOTOS) {
-      box.checked = false;
+  const apply = (checked) => {
+    if (checked && !state.pickedPhotos.has(name) && state.pickedPhotos.size >= MAX_PHOTOS) {
       toast(`ВК принимает не больше ${MAX_PHOTOS} фото за раз — лишние уйдут молча. Сними одно, чтобы взять другое.`, "warn");
-      return;
+      return false;
     }
-    if (box.checked) state.pickedPhotos.add(name);
+    if (checked) state.pickedPhotos.add(name);
     else state.pickedPhotos.delete(name);
     syncPhotos();
+    return true;
+  };
+  box.addEventListener("change", () => {
+    if (!apply(box.checked)) box.checked = false;
   });
   const img = el("img", {
     src: thumbUrl(name),
@@ -374,11 +473,20 @@ function photoCard(name) {
     { type: "button", class: "icon sm ghost danger", title: "Удалить фото", onclick: () => deletePhoto(name) },
     [icon("trash", "sm"), el("span", { class: "visually-hidden", text: `Удалить ${name}` })]
   );
-  return el("li", { class: `card${picked ? " picked" : ""}` }, [
+  const card = el("li", { class: `card pickable${picked ? " picked" : ""}` }, [
     el("div", { class: "thumb" }, [img]),
     el("p", { class: "card-name", text: name, title: name }),
     el("div", { class: "card-row" }, [box, el("label", { text: "прикрепить" }), del]),
   ]);
+  // Клик по карточке прикрепляет фото: целиться в галочку не нужно.
+  card.addEventListener("click", (event) => {
+    if (event.target === box || event.target === img || event.target.closest("button")) return;
+    const next = !state.pickedPhotos.has(name);
+    if (!apply(next)) return;
+    box.checked = next;
+    card.classList.toggle("picked", next);
+  });
+  return card;
 }
 
 function syncPhotos() {
@@ -388,20 +496,37 @@ function syncPhotos() {
   syncActions();
 }
 
+// Фото — от более новых к старым: в photos_dir это mtime файла, его и отдаёт /api/state.
+function sortedPhotos() {
+  return [...state.photos].sort(
+    (a, b) => (state.photoAdded.get(b) || 0) - (state.photoAdded.get(a) || 0) || a.localeCompare(b, "ru")
+  );
+}
+
 function renderPhotos() {
   const list = $("list-photos");
-  const all = [...state.photos].sort((a, b) => b.localeCompare(a, "ru"));
+  const all = sortedPhotos();
   const shown = filterNames(all, $("photo-search").value);
+  const pages = Math.max(1, Math.ceil(shown.length / PHOTO_PAGE));
+  if (state.photoPage > pages) state.photoPage = pages;
+  const page = state.photoPage;
+  const from = (page - 1) * PHOTO_PAGE;
+
   list.replaceChildren();
   if (!shown.length) {
     list.append(el("li", { class: "empty", text: all.length ? "Ничего не найдено" : "Фото не загружены" }));
   }
-  for (const name of shown) list.append(photoCard(name));
-  $("photo-count").textContent = shown.length === all.length ? `${all.length} шт.` : `${shown.length} из ${all.length}`;
+  for (const name of shown.slice(from, from + PHOTO_PAGE)) list.append(photoCard(name));
+  const picked = shown.filter((name) => state.pickedPhotos.has(name)).length;
+  $("photo-count").textContent =
+    (shown.length === all.length ? `${all.length} шт.` : `${shown.length} из ${all.length}`) +
+    (picked ? ` · прикреплено ${picked}` : "");
   $("photo-tab-count").textContent = all.length ? `· ${all.length}` : "";
-  $("photo-hint").textContent = state.transport.supports_photos
-    ? `Отмеченные фото прикрепляются к сообщению при отправке через API. ВК принимает не больше ${MAX_PHOTOS} за раз — остальные не уйдут. Клик по фото — предпросмотр.`
-    : "Режим clipboard: фото придётся прикрепить в ВК вручную.";
+  renderPager($("photos-pager"), pages, page, (n) => {
+    state.photoPage = n;
+    renderPhotos();
+    $("photo-list-scroll").scrollTo({ top: 0 });
+  });
   syncPhotos();
 }
 
@@ -505,10 +630,16 @@ function renderResults(data) {
 
 function syncActions() {
   const hasText = $("message").value.trim().length > 0;
-  $("btn-generate-batch").disabled = state.pickedLessons.size === 0;
+  const llmDown = state.llmHealth.status === "bad";
+  const batch = $("btn-generate-batch");
+  batch.disabled = state.pickedLessons.size === 0 || llmDown;
+  batch.title = llmDown
+    ? "Провайдер ИИ недоступен — генерация не запустится"
+    : "Сгенерировать сообщения по отмеченным методичкам";
   $("generate-batch-label").textContent =
     state.pickedLessons.size ? `Сгенерировать выбранные (${state.pickedLessons.size})` : "Сгенерировать выбранные";
-  $("btn-regenerate").disabled = !state.current;
+  for (const button of $("list-lessons").querySelectorAll(".gen-one")) button.disabled = llmDown;
+  $("btn-regenerate").disabled = !state.current || llmDown;
   $("btn-copy").disabled = !hasText;
   $("btn-save").disabled = !hasText;
   $("btn-send").disabled = !hasText || state.pickedChats.size === 0;
@@ -522,6 +653,7 @@ async function loadState() {
   state.chats = data.chats;
   state.lessons = new Set(data.lessons);
   state.photos = new Set(data.photos);
+  state.photoAdded = new Map((data.photos_meta || []).map((item) => [item.name, item.added]));
   const t = data.transport;
   const badge = $("badge-transport");
   const modeText = `транспорт: ${t.mode}`;
@@ -537,6 +669,8 @@ async function loadState() {
   const llmFull = `${data.llm.model} @ ${data.llm.base_url}`;
   $("badge-llm").textContent = data.llm.model;
   $("badge-llm").title = `${llmFull}\nПровайдер ИИ и модель. Меняются в настройках.`;
+  if (data.llm.health) state.llmHealth = data.llm.health;
+  renderLlmHealth();
   renderLessons();
   renderPhotos();
   renderChats();
@@ -603,8 +737,12 @@ async function upload(files) {
 
 async function generateOne(name, button) {
   await guard(button, async () => {
+    if (!(await ensureLlmHealthy())) return;
     startProgress("Генерация");
-    const data = await post("/api/generate", { name });
+    const data = await post("/api/generate", { name }).catch(async (err) => {
+      await refreshLlmHealth(true);
+      throw err;
+    });
     $("message").value = data.text;
     state.current = data.name;
     state.title = `${data.lesson.code} ${data.lesson.title}`.trim() || data.name;
@@ -618,8 +756,12 @@ async function generateOne(name, button) {
 async function generateBatch() {
   await guard($("btn-generate-batch"), async () => {
     const names = [...state.pickedLessons];
+    if (!(await ensureLlmHealthy())) return;
     startProgress(`Генерация ${names.length} шт.`);
-    const data = await post("/api/generate_batch", { names });
+    const data = await post("/api/generate_batch", { names }).catch(async (err) => {
+      await refreshLlmHealth(true);
+      throw err;
+    });
     const failed = data.items.filter((item) => item.error);
     const done = data.items.filter((item) => !item.error);
     if (done.length) {
@@ -780,8 +922,28 @@ function applyProviderPreset() {
   key.value = preset.api_key || "";
   useIcon("show-llm-key", "eye");
   $("show-llm-key").title = "Показать ключ";
-  $("llm-models").replaceChildren();
-  status("llm-status", "");
+  renderModelOptions([], "");
+  llmStatus("");
+  loadModels();
+}
+
+function renderModelOptions(details, current) {
+  const select = $("set-llm-model");
+  const options = details.map((item) => {
+    const id = typeof item === "string" ? item : item.id;
+    const state = (typeof item === "string" ? "" : item.state) || "";
+    const note = state === "loaded" ? " · загружена" : state === "not-loaded" ? " · не загружена" : "";
+    return el("option", { value: id, text: id + note });
+  });
+  if (current && !options.some((option) => option.value === current)) {
+    options.unshift(el("option", { value: current, text: `${current} · сохранённая, её нет в списке` }));
+  }
+  if (!options.length) {
+    options.push(el("option", { value: "", text: "— список недоступен —" }));
+  }
+  select.replaceChildren(...options);
+  select.disabled = details.length === 0;
+  if (current) select.value = current;
 }
 
 function readLlmFields() {
@@ -790,26 +952,55 @@ function readLlmFields() {
     base_url: $("set-llm-url").value.trim(),
     api_key: readTokenField("set-llm-key"),
     model: $("set-llm-model").value.trim(),
-    temperature: $("set-llm-temp").value,
+    temperature: Number($("set-llm-temp").value),
     timeout_seconds: $("set-llm-timeout").value,
   };
 }
 
 const llmStatus = (text, kind) => status("llm-status", text, kind || "");
 
-async function checkLlm() {
+let modelsTimer = null;
+
+// Список моделей нужен сразу при открытии диалога, а не после кнопки «Проверить».
+async function loadModels(quiet = true) {
   const draft = readLlmFields();
-  llmStatus("Проверяю…");
-  const data = await post("/api/llm/check", { llm: draft });
-  if (!data.ok) {
-    llmStatus(`Не подключается: ${data.error}`, "bad");
+  if (!draft.base_url) {
+    renderModelOptions([], draft.model);
+    if (!quiet) llmStatus("Укажи адрес API — без него список моделей не получить", "warn");
     return;
   }
-  $("llm-models").replaceChildren(...data.models.map((id) => el("option", { value: id })));
+  if (!quiet) llmStatus("Проверяю…");
+  try {
+    const data = await post("/api/llm/check", { llm: draft });
+    if (!data.ok) {
+      renderModelOptions([], draft.model);
+      if (!quiet) llmStatus(`Не подключается: ${data.error}`, "bad");
+      return;
+    }
+    renderModelOptions(data.details || [], draft.model);
+    if (!quiet) llmStatus(modelCheckText(draft.model, data), data.model_found ? "ok" : "warn");
+  } catch (err) {
+    renderModelOptions([], draft.model);
+    if (!quiet) llmStatus(err.message, "bad");
+  }
+}
+
+function scheduleLoadModels() {
+  clearTimeout(modelsTimer);
+  modelsTimer = setTimeout(() => loadModels(), 400);
+}
+
+function modelCheckText(model, data) {
   const head = `Подключение есть, моделей: ${data.models.length}`;
-  if (!data.models.length) llmStatus(`${head}. Список пуст — впиши имя модели вручную.`, "warn");
-  else if (data.model_found) llmStatus(`${head}. Модель «${draft.model}» на месте.`, "ok");
-  else llmStatus(`${head}, но модели «${draft.model}» среди них нет.`, "warn");
+  if (!data.models.length) return `${head}. Список пуст — проверь адрес и ключ.`;
+  if (!model) return `${head}. Выбери модель из списка.`;
+  if (data.model_found) return `${head}. Модель «${model}» на месте.`;
+  return `${head}, но модели «${model}» среди них нет.`;
+}
+
+async function checkLlm() {
+  llmStatus("Проверяю…");
+  await loadModels(false);
 }
 
 async function openSettings() {
@@ -843,15 +1034,20 @@ async function openSettings() {
   );
   provider.value = data.llm.provider;
   $("set-llm-url").value = data.llm.base_url;
-  $("set-llm-model").value = data.llm.model;
   $("set-llm-temp").value = data.llm.temperature;
+  showTemperature();
   $("set-llm-timeout").value = data.llm.timeout_seconds;
-  $("llm-models").replaceChildren();
+  renderModelOptions([], data.llm.model);
   llmStatus("");
 
   renderChatRows();
   vkStatus("");
   $("dlg-settings").showModal();
+  loadModels();
+}
+
+function showTemperature() {
+  $("llm-temp-value").textContent = Number($("set-llm-temp").value).toFixed(2);
 }
 
 async function saveSettings() {
@@ -870,6 +1066,7 @@ async function saveSettings() {
   state.pickedChats = new Set();
   $("dlg-settings").close();
   await loadState();
+  await refreshLlmHealth(true);
   const providerLabel = data.llm.providers.find((p) => p.id === data.llm.provider)?.label;
   if (data.warnings && data.warnings.length) {
     toast("Сохранено, но проверь", "warn", data.warnings.join("\n"));
@@ -1232,8 +1429,14 @@ $("btn-keys-close").addEventListener("click", () => $("dlg-keys").close());
 
 $("btn-photo-view-close").addEventListener("click", () => $("dlg-photo-view").close());
 
-$("lesson-search").addEventListener("input", renderLessons);
-$("photo-search").addEventListener("input", renderPhotos);
+$("lesson-search").addEventListener("input", () => {
+  state.lessonPage = 1;
+  renderLessons();
+});
+$("photo-search").addEventListener("input", () => {
+  state.photoPage = 1;
+  renderPhotos();
+});
 
 $("btn-lessons-all").addEventListener("click", () => {
   const all = [...state.lessons].sort((a, b) => a.localeCompare(b, "ru"));
@@ -1249,7 +1452,7 @@ $("btn-lessons-all").addEventListener("click", () => {
 });
 
 $("btn-photos-all").addEventListener("click", () => {
-  const all = [...state.photos].sort((a, b) => b.localeCompare(a, "ru"));
+  const all = sortedPhotos();
   const shown = filterNames(all, $("photo-search").value);
   const room = MAX_PHOTOS - state.pickedPhotos.size;
   const toAdd = shown.filter((name) => !state.pickedPhotos.has(name));
@@ -1303,6 +1506,9 @@ wireTokenField("set-token-community", "show-token-community");
 wireTokenField("set-llm-key", "show-llm-key");
 
 $("set-llm-provider").addEventListener("change", applyProviderPreset);
+$("set-llm-url").addEventListener("input", scheduleLoadModels);
+$("set-llm-key").addEventListener("change", () => loadModels());
+$("set-llm-temp").addEventListener("input", showTemperature);
 
 $("btn-llm-check").addEventListener("click", () =>
   guard($("btn-llm-check"), async () => {
@@ -1326,4 +1532,5 @@ loadState()
     if ($("message").value.trim()) return;
     if (restoreDraft(true)) toast("Восстановлен черновик из прошлой сессии", "ok");
   })
-  .catch((err) => toast(err.message, "bad"));
+  .catch((err) => toast(err.message, "bad"))
+  .finally(() => refreshLlmHealth(true).then(scheduleHealth));

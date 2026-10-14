@@ -73,7 +73,7 @@ main {
 
 @media (min-width: 901px) {
   main {
-    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    grid-template-columns: minmax(320px, 440px) minmax(0, 1fr);
     align-items: start;
   }
 }
@@ -121,6 +121,43 @@ main {
   align-items: baseline;
   justify-content: space-between;
 }
+
+/* --- панели источников --- */
+
+.source-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+/* Пагинация под прокручиваемым списком: не уезжает при прокрутке и не сжимается. */
+.source-panel > .row.pager {
+  flex: none;
+}
+
+.source-panel > .list-scroll {
+  flex: 1 1 auto;
+}
+
+.panel-foot {
+  flex: none;
+}
+
+.panel-foot button {
+  width: 100%;
+  min-height: calc(var(--control-h) + 8px);
+  font-size: 0.9375rem;
+}
+
+button.wide { width: 100%; }
 
 /* --- кнопки --- */
 
@@ -341,6 +378,31 @@ textarea {
 .tok input { font-family: var(--font-mono); }
 .tok button { flex: none; }
 
+/* --- слайдер --- */
+
+.slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.slider input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--control-h);
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.slider output {
+  flex: none;
+  min-width: 3.4em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9375rem;
+}
+
 /* --- вкладки --- */
 
 .tablist {
@@ -404,7 +466,7 @@ textarea {
 .list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -414,7 +476,7 @@ textarea {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface);
@@ -514,7 +576,9 @@ button.open:hover:not(:disabled) {
   background: var(--surface);
 }
 
-.card.picked { border-color: var(--accent); }
+.card.pickable { cursor: pointer; }
+.card.pickable:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.card.picked { border-color: var(--accent); background: var(--accent-soft); }
 
 .thumb {
   display: block;
@@ -696,7 +760,7 @@ dialog::backdrop { background: var(--overlay); }
 }
 
 .dlg > .tablist {
-  margin: 0 var(--space-5);
+  margin: var(--space-4) var(--space-5) 0;
 }
 
 .dlg-body h2:not(:first-child) { margin-top: var(--space-3); }
@@ -763,6 +827,18 @@ table.chats td.empty { padding: var(--space-3) 0; color: var(--muted); }
 }
 .row.pager .gap { color: var(--muted); padding: 0 2px; }
 
+.list-scroll > .row.pager:not(:empty) {
+  padding: 0;
+  border-top: none;
+  background: none;
+}
+
+/* Пагинация под списком, а не внутри прокрутки: только разделитель, без подложки. */
+.source-panel > .row.pager:not(:empty) {
+  padding: var(--space-3) 0 0;
+  background: none;
+}
+
 .keys-list { display: flex; flex-direction: column; gap: 8px; margin: 0; }
 .keys-list div { display: flex; justify-content: space-between; gap: var(--space-4); }
 .keys-list kbd {
@@ -775,12 +851,45 @@ table.chats td.empty { padding: var(--space-3) 0; color: var(--muted); }
   font-size: 0.8125rem;
 }
 
-/* --- прокрутка панелей на широком экране --- */
+/* --- раскладка по высоте окна на широком экране --- */
 
 @media (min-width: 901px) {
+  /* Обе колонки одной высоты: нижние края карточек на одной линии. */
+  .col-left,
+  .col-main {
+    height: max(340px, calc(100vh - var(--header-h) - var(--space-5) * 2));
+  }
+
+  .col-left .cardish,
+  .col-main .cardish {
+    min-height: 0;
+  }
+
+  .col-left .cardish,
+  .col-left .source-panel,
   .col-left .scroll-pane {
-    max-height: calc(100vh - var(--header-h) - var(--space-5) * 3);
-    padding-right: 4px;
+    flex: 1;
+  }
+
+  /* Методички и фото: прокручивается только содержимое, шапка и кнопка на месте. */
+  .col-left .scroll-pane,
+  .col-left .list-scroll {
     overflow: auto;
+    padding-right: 4px;
+  }
+
+  /* Сообщение ужимается, освобождая место под растянутую рассылку. */
+  #message {
+    flex: 1 1 auto;
+    min-height: 5em;
+  }
+
+  .col-main > .cardish:first-child { flex: 3 2 0; }
+  .col-main > .cardish:last-child { flex: 2 2 0; }
+
+  .col-main .list-scroll {
+    flex: 1;
+    overflow: auto;
+    padding-right: 4px;
   }
 }
