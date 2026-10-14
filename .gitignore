@@ -1,0 +1,13 @@
+# Секреты и локальные настройки — никогда в репозиторий
+config.toml
+config.toml.bak
+
+# Пользовательские данные
+lessons/
+photos/
+history/
+
+# Python
+__pycache__/
+*.py[cod]
+.ruff_cache/

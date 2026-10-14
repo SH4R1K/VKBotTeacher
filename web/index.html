@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Рассылка ВК — сообщения родителям</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+
+<header>
+  <h1>Сообщения родителям</h1>
+  <div class="badges">
+    <span class="badge" id="badge-transport">транспорт: …</span>
+    <span class="badge" id="badge-llm">LLM: …</span>
+  </div>
+  <div class="badges">
+    <button type="button" class="link" id="btn-style">Стиль сообщения</button>
+    <button type="button" class="link" id="btn-history">История</button>
+    <button type="button" class="link" id="btn-settings">Настройки</button>
+  </div>
+</header>
+
+<p class="notice" id="notice" hidden></p>
+
+<main>
+  <section class="col">
+    <h2>1. Методички</h2>
+    <label class="drop" id="drop-lesson">
+      <input type="file" id="file-lesson" accept="application/pdf" multiple hidden>
+      <strong>Перетащи PDF сюда</strong> или нажми, чтобы выбрать
+    </label>
+    <div class="row">
+      <button type="button" id="btn-generate">Сгенерировать</button>
+      <button type="button" id="btn-generate-batch" disabled>Сгенерировать выбранные</button>
+    </div>
+    <div class="row filter">
+      <input id="lesson-search" type="search" placeholder="Поиск методички по имени" autocomplete="off">
+      <span class="hint" id="lesson-count"></span>
+    </div>
+    <ul class="list" id="list-lessons"></ul>
+
+    <h2>Фото для отправки</h2>
+    <label class="drop" id="drop-photo">
+      <input type="file" id="file-photo" accept="image/*" multiple hidden>
+      <strong>Перетащи фото сюда</strong> или нажми, чтобы выбрать
+    </label>
+    <div class="row filter">
+      <input id="photo-search" type="search" placeholder="Поиск фото по имени" autocomplete="off">
+      <span class="hint" id="photo-count"></span>
+    </div>
+    <ul class="cards" id="list-photos"></ul>
+    <p class="hint" id="photo-hint"></p>
+  </section>
+
+  <section class="col wide">
+    <h2>2. Сообщение</h2>
+    <div class="facts" id="facts" hidden></div>
+    <textarea id="message" rows="18" placeholder="Здесь появится сгенерированное сообщение. Его можно править перед отправкой."></textarea>
+    <div class="row">
+      <button type="button" id="btn-regenerate" disabled>Перегенерировать</button>
+      <button type="button" id="btn-copy" disabled>Скопировать</button>
+      <button type="button" id="btn-save" disabled>Сохранить в историю</button>
+    </div>
+
+    <h2>3. Рассылка</h2>
+    <ul class="list" id="list-chats"></ul>
+    <div class="row">
+      <button type="button" id="btn-send" class="primary" disabled>Отправить</button>
+      <span class="hint" id="send-hint"></span>
+    </div>
+    <ul class="list results" id="results"></ul>
+  </section>
+</main>
+
+<dialog id="dlg-style">
+  <form method="dialog" class="dlg">
+    <h2>Стиль сообщения</h2>
+    <p class="hint">Файл <code>style.md</code> — промпт, золотой образец и запреты. Правь и жми «Сохранить».</p>
+    <textarea id="style-text" rows="26"></textarea>
+    <menu>
+      <button type="button" id="btn-style-save">Сохранить</button>
+      <button type="button" id="btn-style-cancel">Закрыть</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-photo-view">
+  <form method="dialog" class="dlg">
+    <h2 id="photo-view-title">Фото</h2>
+    <img id="photo-view-img" alt="Предпросмотр фото">
+    <menu>
+      <button type="button" id="btn-photo-view-close">Закрыть</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-history">
+  <form method="dialog" class="dlg">
+    <h2>История</h2>
+    <div class="row filter">
+      <input id="history-search" type="search" placeholder="Поиск по названию и тексту" autocomplete="off">
+      <button type="button" id="btn-history-search">Найти</button>
+      <button type="button" id="btn-history-reset">Сбросить</button>
+      <span class="hint" id="history-count"></span>
+    </div>
+    <ul class="list" id="history-list"></ul>
+    <div class="row pager" id="history-pager"></div>
+    <menu>
+      <button type="button" id="btn-history-close">Закрыть</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings">
+  <form method="dialog" class="dlg">
+    <h2>Провайдер ИИ</h2>
+
+    <div class="grid2">
+      <label class="field">
+        <span>Провайдер</span>
+        <select id="set-llm-provider"></select>
+      </label>
+      <label class="field">
+        <span>Модель</span>
+        <input id="set-llm-model" type="text" list="llm-models" autocomplete="off" spellcheck="false">
+        <datalist id="llm-models"></datalist>
+      </label>
+    </div>
+
+    <div class="grid2">
+      <label class="field">
+        <span>Адрес API (base_url)</span>
+        <input id="set-llm-url" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>API-ключ <em>— локальным моделям обычно не нужен</em></span>
+        <span class="tok">
+          <input id="set-llm-key" type="text" autocomplete="off" spellcheck="false">
+          <button type="button" id="show-llm-key">Показать</button>
+        </span>
+      </label>
+    </div>
+
+    <div class="grid2">
+      <label class="field">
+        <span>Температура <em>— от 0 (строго) до 2 (свободнее)</em></span>
+        <input id="set-llm-temp" type="number" step="0.1" min="0" max="2">
+      </label>
+      <label class="field">
+        <span>Таймаут ответа, с</span>
+        <input id="set-llm-timeout" type="number" step="5" min="1" max="3600">
+      </label>
+    </div>
+
+    <div class="row">
+      <button type="button" id="btn-llm-check">Проверить подключение</button>
+      <span class="hint" id="llm-status"></span>
+    </div>
+    <p class="hint">Выбор провайдера подставляет его адрес и ключ. Локальные (LM Studio, Ollama) работают без ключа и без интернета, облачные требуют ключ. Поле модели подсказывает список моделей, если провайдер его отдаёт.</p>
+
+    <h2>Настройки ВК и рассылки</h2>
+
+    <div class="grid2">
+      <label class="field">
+        <span>Режим отправки</span>
+        <select id="set-mode"></select>
+      </label>
+      <label class="field">
+        <span>Версия API ВК</span>
+        <input id="set-version" type="text" autocomplete="off">
+      </label>
+    </div>
+
+    <label class="field">
+      <span>Токен пользователя</span>
+      <span class="tok">
+        <input id="set-token-user" type="text" autocomplete="off" spellcheck="false">
+        <button type="button" id="show-token-user">Показать</button>
+      </span>
+    </label>
+
+    <label class="field">
+      <span>Токен сообщества <em>— необязательно, нужен только для режима community</em></span>
+      <span class="tok">
+        <input id="set-token-community" type="text" autocomplete="off" spellcheck="false">
+        <button type="button" id="show-token-community">Показать</button>
+      </span>
+    </label>
+
+    <div class="row">
+      <button type="button" id="btn-vk-check">Проверить токен</button>
+      <button type="button" id="btn-vk-load">Загрузить беседы из ВК</button>
+    </div>
+    <p class="hint" id="vk-status"></p>
+
+    <h2>Чаты рассылки</h2>
+    <table class="chats">
+      <thead>
+        <tr><th>Название</th><th>peer_id</th><th></th></tr>
+      </thead>
+      <tbody id="chats-body"></tbody>
+    </table>
+    <div class="row">
+      <button type="button" id="btn-chat-add">Добавить чат</button>
+      <span class="hint">peer_id нужен только для отправки через API. Без него сообщение копируется в буфер, а ты вставляешь его в беседу сам. ВК не отдаёт список бесед, куда добавлен бот, поэтому в поле peer_id можно вставить ссылку из браузера (vk.com/im?sel=2000000000) — приложение само вытащит число.</span>
+    </div>
+    <p class="hint" id="chat-diag"></p>
+
+    <menu>
+      <button type="button" id="btn-settings-save" class="primary">Сохранить</button>
+      <button type="button" id="btn-settings-cancel">Закрыть</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-chats">
+  <form method="dialog" class="dlg">
+    <h2>Беседы ВК</h2>
+    <p class="hint">Отметь нужные и нажми «Добавить в рассылку».</p>
+    <ul class="list" id="vk-chats"></ul>
+    <menu>
+      <button type="button" id="btn-chats-add" class="primary">Добавить в рассылку</button>
+      <button type="button" id="btn-chats-close">Закрыть</button>
+    </menu>
+  </form>
+</dialog>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>
